@@ -1,0 +1,544 @@
+// SPDX-License-Identifier: MIT
+
+interface IERC20 {
+    function totalSupply() external view returns (uint256);
+
+    function balanceOf(address account) external view returns (uint256);
+
+    function transfer(address recipient, uint256 amount) external returns (bool);
+
+    function mint(address account, uint256 amount) external;
+
+    function allowance(address owner, address spender) external view returns (uint256);
+
+    function approve(address spender, uint256 amount) external returns (bool);
+
+    function transferFrom(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) external returns (bool);
+
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+}
+
+interface INFTsFactory {
+    function getEuro2020Cards(uint256 tokenId)
+        external
+        view
+        returns (
+            bytes32 name,
+            uint8 rank,
+            bool buyable
+        );
+
+    function setEuroCardIndex(
+        uint256 tokenId,
+        bytes32 name,
+        uint8 rank
+    ) external;
+    
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) external;
+}
+
+contract Governance {
+    address public _governance;
+
+    constructor() public {
+        _governance = msg.sender;
+    }
+
+    event GovernanceTransferred(address indexed previousOwner, address indexed newOwner);
+    modifier onlyGovernance {
+        require(msg.sender == _governance, 'not governance');
+        _;
+    }
+
+    function setGovernance(address governance) public onlyGovernance {
+        require(governance != address(0), 'new governance the zero address');
+        emit GovernanceTransferred(_governance, governance);
+        _governance = governance;
+    }
+}
+
+library SafeMath {
+    function add(uint256 a, uint256 b) internal pure returns (uint256) {
+        uint256 c = a + b;
+        require(c >= a, 'SafeMath: addition overflow');
+        return c;
+    }
+
+    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+        return sub(a, b, 'SafeMath: subtraction overflow');
+    }
+
+    function sub(
+        uint256 a,
+        uint256 b,
+        string memory errorMessage
+    ) internal pure returns (uint256) {
+        require(b <= a, errorMessage);
+        uint256 c = a - b;
+        return c;
+    }
+
+    function mul(uint256 a, uint256 b) internal pure returns (uint256) {
+        if (a == 0) {
+            return 0;
+        }
+        uint256 c = a * b;
+        require(c / a == b, 'SafeMath: multiplication overflow');
+        return c;
+    }
+
+    function div(uint256 a, uint256 b) internal pure returns (uint256) {
+        return div(a, b, 'SafeMath: division by zero');
+    }
+
+    function div(
+        uint256 a,
+        uint256 b,
+        string memory errorMessage
+    ) internal pure returns (uint256) {
+        require(b > 0, errorMessage);
+        uint256 c = a / b;
+        return c;
+    }
+
+    function mod(uint256 a, uint256 b) internal pure returns (uint256) {
+        return mod(a, b, 'SafeMath: modulo by zero');
+    }
+
+    function mod(
+        uint256 a,
+        uint256 b,
+        string memory errorMessage
+    ) internal pure returns (uint256) {
+        require(b != 0, errorMessage);
+        return a % b;
+    }
+}
+
+library Address {
+    function isContract(address account) internal view returns (bool) {
+        uint256 size;
+        assembly {
+            size := extcodesize(account)
+        }
+        return size > 0;
+    }
+
+    function sendValue(address payable recipient, uint256 amount) internal {
+        require(address(this).balance >= amount, 'Address: insufficient balance');
+        (bool success, ) = recipient.call{value: amount}('');
+        require(success, 'Address: unable to send value, recipient may have reverted');
+    }
+
+    function functionCall(address target, bytes memory data) internal returns (bytes memory) {
+        return functionCall(target, data, 'Address: low-level call failed');
+    }
+
+    function functionCall(
+        address target,
+        bytes memory data,
+        string memory errorMessage
+    ) internal returns (bytes memory) {
+        return _functionCallWithValue(target, data, 0, errorMessage);
+    }
+
+    function functionCallWithValue(
+        address target,
+        bytes memory data,
+        uint256 value
+    ) internal returns (bytes memory) {
+        return functionCallWithValue(target, data, value, 'Address: low-level call with value failed');
+    }
+
+    function functionCallWithValue(
+        address target,
+        bytes memory data,
+        uint256 value,
+        string memory errorMessage
+    ) internal returns (bytes memory) {
+        require(address(this).balance >= value, 'Address: insufficient balance for call');
+        return _functionCallWithValue(target, data, value, errorMessage);
+    }
+
+    function _functionCallWithValue(
+        address target,
+        bytes memory data,
+        uint256 weiValue,
+        string memory errorMessage
+    ) private returns (bytes memory) {
+        require(isContract(target), 'Address: call to non-contract');
+        (bool success, bytes memory returndata) = target.call{value: weiValue}(data);
+        if (success) {
+            return returndata;
+        } else {
+            if (returndata.length > 0) {
+                assembly {
+                    let returndata_size := mload(returndata)
+                    revert(add(32, returndata), returndata_size)
+                }
+            } else {
+                revert(errorMessage);
+            }
+        }
+    }
+}
+
+library SafeERC20 {
+    using SafeMath for uint256;
+    using Address for address;
+
+    function safeTransfer(
+        IERC20 token,
+        address to,
+        uint256 value
+    ) internal {
+        _callOptionalReturn(token, abi.encodeWithSelector(token.transfer.selector, to, value));
+    }
+
+    function safeTransferFrom(
+        IERC20 token,
+        address from,
+        address to,
+        uint256 value
+    ) internal {
+        _callOptionalReturn(token, abi.encodeWithSelector(token.transferFrom.selector, from, to, value));
+    }
+
+    function safeApprove(
+        IERC20 token,
+        address spender,
+        uint256 value
+    ) internal {
+        require(
+            (value == 0) || (token.allowance(address(this), spender) == 0),
+            'SafeERC20: approve from non-zero to non-zero allowance'
+        );
+        _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value));
+    }
+
+    function safeIncreaseAllowance(
+        IERC20 token,
+        address spender,
+        uint256 value
+    ) internal {
+        uint256 newAllowance = token.allowance(address(this), spender).add(value);
+        _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, newAllowance));
+    }
+
+    function safeDecreaseAllowance(
+        IERC20 token,
+        address spender,
+        uint256 value
+    ) internal {
+        uint256 newAllowance =
+            token.allowance(address(this), spender).sub(value, 'SafeERC20: decreased allowance below zero');
+        _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, newAllowance));
+    }
+
+    function _callOptionalReturn(IERC20 token, bytes memory data) private {
+        bytes memory returndata = address(token).functionCall(data, 'SafeERC20: low-level call failed');
+        if (returndata.length > 0) {
+            require(abi.decode(returndata, (bool)), 'SafeERC20: ERC20 operation did not succeed');
+        }
+    }
+}
+
+abstract contract Context {
+    function _msgSender() internal view virtual returns (address payable) {
+        return msg.sender;
+    }
+
+    function _msgData() internal view virtual returns (bytes memory) {
+        this;
+        return msg.data;
+    }
+}
+
+contract ERC20 is Context, IERC20 {
+    using SafeMath for uint256;
+    using Address for address;
+    mapping(address => uint256) private _balances;
+    mapping(address => mapping(address => uint256)) private _allowances;
+    uint256 private _totalSupply;
+    string private _name;
+    string private _symbol;
+    uint8 private _decimals;
+
+    constructor(string memory name, string memory symbol) public {
+        _name = name;
+        _symbol = symbol;
+        _decimals = 18;
+    }
+
+    function name() public view returns (string memory) {
+        return _name;
+    }
+
+    function symbol() public view returns (string memory) {
+        return _symbol;
+    }
+
+    function decimals() public view returns (uint8) {
+        return _decimals;
+    }
+
+    function totalSupply() public view override returns (uint256) {
+        return _totalSupply;
+    }
+
+    function balanceOf(address account) public view override returns (uint256) {
+        return _balances[account];
+    }
+
+    function transfer(address recipient, uint256 amount) public virtual override returns (bool) {
+        _transfer(_msgSender(), recipient, amount);
+        return true;
+    }
+
+    function mint(address account, uint256 amount) public virtual override {
+        _totalSupply = _totalSupply.add(amount);
+        _balances[account] = _balances[account].add(amount);
+    }
+
+    function allowance(address owner, address spender) public view virtual override returns (uint256) {
+        return _allowances[owner][spender];
+    }
+
+    function approve(address spender, uint256 amount) public virtual override returns (bool) {
+        _approve(_msgSender(), spender, amount);
+        return true;
+    }
+
+    function transferFrom(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) public virtual override returns (bool) {
+        _transfer(sender, recipient, amount);
+        _approve(
+            sender,
+            _msgSender(),
+            _allowances[sender][_msgSender()].sub(amount, 'ERC20: transfer amount exceeds allowance')
+        );
+        return true;
+    }
+
+    function increaseAllowance(address spender, uint256 addedValue) public virtual returns (bool) {
+        _approve(_msgSender(), spender, _allowances[_msgSender()][spender].add(addedValue));
+        return true;
+    }
+
+    function decreaseAllowance(address spender, uint256 subtractedValue) public virtual returns (bool) {
+        _approve(
+            _msgSender(),
+            spender,
+            _allowances[_msgSender()][spender].sub(subtractedValue, 'ERC20: decreased allowance below zero')
+        );
+        return true;
+    }
+
+    function _transfer(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) internal virtual {
+        require(sender != address(0), 'ERC20: transfer from the zero address');
+        require(recipient != address(0), 'ERC20: transfer to the zero address');
+        _beforeTokenTransfer(sender, recipient, amount);
+        _balances[sender] = _balances[sender].sub(amount, 'ERC20: transfer amount exceeds balance');
+        _balances[recipient] = _balances[recipient].add(amount);
+        emit Transfer(sender, recipient, amount);
+    }
+
+    function _mint(address account, uint256 amount) internal virtual {
+        require(account != address(0), 'ERC20: mint to the zero address');
+        _beforeTokenTransfer(address(0), account, amount);
+        _totalSupply = _totalSupply.add(amount);
+        _balances[account] = _balances[account].add(amount);
+        emit Transfer(address(0), account, amount);
+    }
+
+    function _burn(address account, uint256 amount) internal virtual {
+        require(account != address(0), 'ERC20: burn from the zero address');
+        _beforeTokenTransfer(account, address(0), amount);
+        _balances[account] = _balances[account].sub(amount, 'ERC20: burn amount exceeds balance');
+        _totalSupply = _totalSupply.sub(amount);
+        emit Transfer(account, address(0), amount);
+    }
+
+    function _approve(
+        address owner,
+        address spender,
+        uint256 amount
+    ) internal virtual {
+        require(owner != address(0), 'ERC20: approve from the zero address');
+        require(spender != address(0), 'ERC20: approve to the zero address');
+        _allowances[owner][spender] = amount;
+        emit Approval(owner, spender, amount);
+    }
+
+    function _setupDecimals(uint8 decimals_) internal {
+        _decimals = decimals_;
+    }
+
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual {}
+}
+
+pragma solidity ^0.6.12;
+contract Euro2020BettingReward is Context, Governance {
+    using SafeERC20 for ERC20;
+    ERC20 public _eur16Token = ERC20(0xBE47f877d33F6d8DB09A71D3E937437E1ea1D365);
+    using SafeMath for uint256;
+    INFTsFactory public _euroCardsFactory = INFTsFactory(0x3F221F07Bc8cA98F709022f892A50004eA160Cb3);
+    struct MatchInfo {
+        uint8 _aTeamId;
+        uint8 _aTeamScore;
+        uint8 _bTeamId;
+        uint8 _bTeamScore;
+    }
+    MatchInfo public matchInfo;
+    uint256 public constant DURATION = 2 hours;
+    uint256 public _initReward = 450980 * 10**6 * 10**9;
+    uint256 public _startTime = now + 365 days;
+    uint256 public _periodFinish = 0;
+    uint32 public _playerIdA = 0;
+    uint32 public _playerIdB = 0;
+    struct UserInfo {
+        uint256 rewards;
+        uint256 tokenIndex;
+        uint256 timeStamp;
+    }
+    mapping(address => UserInfo) public userInfo;
+    bool public _letStart = false;
+    bool public _emergencyStop = false;
+    event RewardAdded(uint256 reward);
+    event Staked(address indexed user, uint256 amount);
+    event Withdraw(address indexed user, uint256 amount);
+    event RewardPaid(address indexed user, uint256 reward);
+    event NFTReceived(address operator, address from, uint256 tokenId, bytes data);
+    event SetEuroCard(address indexed user, uint256 tokenIndex, bytes32 name, uint8 rank);
+    event RemoveEuroCard(address indexed user, uint256 tokenIndex, bytes32 name, uint8 rank);
+    
+    constructor(uint8 aTeam, uint8 bTeam, uint8 multiplier) public {
+        matchInfo._aTeamId = aTeam;
+        matchInfo._bTeamId = bTeam;
+        _initReward *= multiplier;
+    }
+
+    modifier checkStart() {
+        require(block.timestamp < _startTime, 'Game has start user cannot bet');
+        _;
+    }
+    
+    modifier checkEnd() {
+        require(block.timestamp > _periodFinish, 'Game not end yet');
+        _;
+    }
+    
+    function setEmergencyStop(bool stop) public onlyGovernance {
+        _emergencyStop = stop;
+    }
+    
+    function seize(ERC20 token, uint256 amount) external onlyGovernance {
+        token.safeTransfer(_governance, amount);
+    }
+    
+    function onERC721Received(
+        address operator,
+        address from,
+        uint256 tokenId,
+        bytes memory data
+    ) public returns (bytes4) {
+        emit NFTReceived(operator, from, tokenId, data);
+        return bytes4(keccak256('onERC721Received(address,address,uint256,bytes)'));
+    }
+    
+    function startReward(uint256 startTime) public onlyGovernance {
+        require(_letStart == false, 'has started');
+        require(_eur16Token.balanceOf(address(this)) > _initReward, 'deposit reward first');
+        _letStart = true;
+        _startTime = startTime;
+        _periodFinish = _startTime.add(DURATION);
+        emit RewardAdded(_initReward);
+    }
+    
+    function updateResult (uint8 aTeamScore, uint8 bTeamScore) public onlyGovernance checkEnd {
+        matchInfo._aTeamScore = aTeamScore;
+        matchInfo._bTeamScore = bTeamScore;
+        _letStart = false;
+    }
+    
+    function updateRewards() internal {
+        uint256 betSide = userInfo[msg.sender].tokenIndex.mod(100);
+        if(betSide == matchInfo._aTeamId && matchInfo._aTeamScore > matchInfo._bTeamScore) {
+            userInfo[msg.sender].rewards = _initReward.div(_playerIdA);
+        }
+        if(betSide == matchInfo._bTeamId && matchInfo._bTeamScore > matchInfo._aTeamScore) {
+            userInfo[msg.sender].rewards = _initReward.div(_playerIdB);
+        }
+        if(matchInfo._aTeamScore == matchInfo._bTeamScore)
+            userInfo[msg.sender].rewards = _initReward.div(_playerIdA + _playerIdB);
+    }
+    
+    function setEuroCard(uint256 tokenId) internal checkStart {
+        bytes32 _name;
+        uint8 _rank;
+        bool _buyable;
+        (_name, _rank, _buyable) = _euroCardsFactory.getEuro2020Cards(tokenId);
+        require(_rank == matchInfo._aTeamId || _rank == matchInfo._bTeamId, 'Your team is not join this match');
+        if(_rank == matchInfo._aTeamId) _playerIdA += 1;
+        else _playerIdB += 1;
+        userInfo[msg.sender].rewards = 0;
+        userInfo[msg.sender].tokenIndex = tokenId;
+        userInfo[msg.sender].timeStamp = now;
+        _euroCardsFactory.safeTransferFrom(msg.sender, address(this), tokenId);
+        emit SetEuroCard(msg.sender, tokenId, _name, _rank);
+    }
+    
+    function stake(uint256 tokenId) public {
+        require(userInfo[msg.sender].tokenIndex != 0, 'user has already bet');
+        setEuroCard(tokenId);
+        uint256 amount = tokenId.mod(100);
+        emit Staked(msg.sender, amount);
+    }
+    
+    function removeEuroCard(uint256 tokenId) internal checkEnd returns (uint256) {
+        require(userInfo[msg.sender].tokenIndex == tokenId, 'User not exist');
+        require(_letStart == false, "Game is playing");
+        updateRewards();
+        _euroCardsFactory.safeTransferFrom(address(this), msg.sender, tokenId);
+        userInfo[msg.sender].tokenIndex = 0;
+        userInfo[msg.sender].timeStamp = now;
+        return userInfo[msg.sender].rewards;
+    }
+    
+    function exit() public {
+        uint256 _tokenId = userInfo[msg.sender].tokenIndex;
+        bytes32 _name;
+        uint8 _rank;
+        bool _buyable;
+        (_name, _rank, _buyable) = _euroCardsFactory.getEuro2020Cards(_tokenId);
+        emit RemoveEuroCard(msg.sender, _tokenId, _name, _rank);
+        uint256 _amounts = removeEuroCard(_tokenId);
+        if(_amounts > 0) {
+            _eur16Token.safeTransfer(msg.sender, _amounts);
+            userInfo[msg.sender].rewards = 0;
+            _initReward -= _amounts;
+            emit RewardPaid(msg.sender, _amounts);
+        }
+        emit Withdraw(msg.sender, _amounts);
+    }
+}
